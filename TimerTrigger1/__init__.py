@@ -142,7 +142,7 @@ def main(mytimer: TimerRequest) -> None:
     logging.info("FWTRIES: %s", os.environ['FWTRIES'])
     logging.info("FWDELAY: %s", os.environ['FWDELAY'])
     logging.info("FWUDRTAG: %s", os.environ['FWUDRTAG'])
-    logging.info("FWMONITOR: %s", os.environ['FWUDRTAG'])
+    logging.info("FWMONITOR: %s", os.environ['FWMONITOR'])
 
     global credentials
     credentials = DefaultAzureCredential()
