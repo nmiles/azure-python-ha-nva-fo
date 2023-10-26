@@ -7,8 +7,11 @@ https://github.com/ScottMonolith/ha-nva-fo
 
 https://github.com/Azure/ha-nva-fo
 
+It uses the Azure Functions Python v1 "programming model" 
 
-This solution uses two Azure virtual machines to host the NVA firewall in an active-passive configuration as the following figure shows.
+https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python?tabs=asgi%2Capplication-level&pivots=python-mode-configuration
+
+This solution uses two Azure virtual machines to host the NVA firewall in an active-passive configuration.
 
 The failover of UDR table entries is automated by a next-hop address set to the IP address of an interface on the active NVA firewall virtual machine. The automated failover logic is hosted in a function app that you create using [Azure Functions](https://docs.microsoft.com/azure/azure-functions/).  Function apps offer several advantages. The failover code runs as a serverless function inside Azure Functions—deployment is convenient, cost-effective, and easy to maintain and customize. In addition, the function app is hosted within Azure Functions, so it has no dependencies on the virtual network. If changes to the virtual network impact the NVA firewalls, the function app continues to run
 independently. Testing is more accurate as well, because it takes place outside the virtual network using the same route as the inbound client requests.
@@ -17,7 +20,7 @@ To check the availability of the NVA firewall, the function app code probes it i
 
 -   By monitoring the state of the Azure virtual machines hosting the NVA firewall.
 
--   By testing whether there is an open port through the firewall to the back-end web server. For this option, the NVA must expose a socket via PIP for the function app code to test.
+-   By testing whether there is an open port through the firewall to any server. For this option, the NVA must expose a socket via PIP for the function app code to test.
 
 You choose the type of probe you want to use when you configure the function app.
 
@@ -27,7 +30,7 @@ This solution assumes that:
 
 -   You have a subscription on Azure
 
--   Your subscription has an existing deployment of two NVA firewalls (probably Meraki) in an availability set on an Azure virtual network. 
+-   Your subscription has an existing deployment of two NVA firewalls (probably Meraki)
 
 -   You know how to route network traffic with a [route table](https://docs.microsoft.com/azure/virtual-network/tutorial-create-route-table-portal).
 
@@ -74,7 +77,7 @@ To create, configure, and deploy the function app:
 
 3.  Navigate to the newly created function app and click the [Platform features](https://docs.microsoft.com/azure/azure-functions/functions-how-to-use-azure-function-app-settings#platform-features-tab) tab.
 
-4.  Click [Application settings](https://docs.microsoft.com/azure/azure-functions/functions-how-to-use-azure-function-app-settings#settings) and add the following variables and values:
+4.  Click [Application settings](https://docs.microsoft.com/azure/azure-functions/functions-how-to-use-azure-function-app-settings#settings) and add the following environment variables and values:
 
 | Variable       | Value                                                                                   |
 |----------------|-----------------------------------------------------------------------------------------|
@@ -159,4 +162,3 @@ This solution is basic by design so you can tailor it to your environment. How y
 * [Azure Virtual Network Appliances](https://azure.microsoft.com/solutions/network-appliances/)
 
 * [vMX_Setup_Guide_for_Microsoft_Azure](https://documentation.meraki.com/MX/MX_Installation_Guides/vMX_Setup_Guide_for_Microsoft_Azure)
-  
