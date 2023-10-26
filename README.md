@@ -9,7 +9,7 @@ https://github.com/Azure/ha-nva-fo
 
 It uses the Azure Functions Python v1 "programming model" 
 
-https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python?tabs=asgi%2Capplication-level&pivots=python-mode-configuration
+https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python
 
 This solution uses two Azure virtual machines to host the NVA firewall in an active-passive configuration.
 
@@ -42,7 +42,7 @@ After you assign the permissions, you apply resource tags to the route table res
 
 To set up the Azure resources:
 
-1.  Setup permissions for your function app, for the resource group containing the NVA firewall virtual machines, assign the **Reader** role. For the resource group(s) containing route table resources, assign the **Contributor** role.
+1.  Setup permissions for your function app under the function apps "Identity" option you can create a "Sytem assigned" service principal.  For the resource group containing the NVA firewall virtual machines, assign the **Reader** role. For the resource group(s) containing route table resources, assign the **Contributor** role to the new principal.
 
 2.  [Configure the resource tag name and value](https://docs.microsoft.com/azure/azure-resource-manager/resource-group-using-tags#portal) for each route table resource managed by the function app using the following:
 
