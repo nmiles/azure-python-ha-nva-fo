@@ -34,6 +34,8 @@ This solution assumes that:
 
 -   You know how to route network traffic with a [route table](https://docs.microsoft.com/azure/virtual-network/tutorial-create-route-table-portal).
 
+-   Visual Studio Code installed to deploy the solution [Download Visual Studio Code](https://code.visualstudio.com/download)
+
 ### Set up Azure resources
 
 To get started, you need to assign permissions to your function app.
@@ -100,24 +102,7 @@ To create, configure, and deploy the function app:
 | FW2FQDN  | Publicly accessible FQDN or IP address for second NVA firewall virtual machine instance    |
 | FW2PORT  | TCP port on which the second NVA firewall virtual machine instance is listening            |
 
-6.  On the **Platform features** tab, click **Deployment options**, and then
-    click the **Setup** button.
-
-7.  To set up a new deployment option, specify the following configuration:
-
-    1.  **Choose Source**: External Repository
-
-    2.  **Repository URL**: <https://github.com/[repo-name]/azure-python-ha-nva-fo>
-
-    3.  **Branch**: *master*
-
-    4.  **Repository Type**: Git
-
-8.  Click **OK** to finish setting up the function app code.
-
-9.  Click the **Sync** button to retrieve and deploy the function code.
-
-> **NOTE:** After you deploy the code and complete the initial testing described in the next section, click the **Disconnect** button to disconnect the function app from the deployment repository so that future public repository updates are not automatically deployed.
+6.  It's easiest to deploy the code from inside Visual Studio Code, you need the Azure and Python plugins loaded [Instruction on how to use VSC with Python Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/create-first-function-vs-code-python)
 
 ### Test the function app
 
