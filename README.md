@@ -16,13 +16,8 @@ This solution uses two Azure virtual machines to host the NVA firewall in an act
 The failover of UDR table entries is automated by a next-hop address set to the IP address of an interface on the active NVA firewall virtual machine. The automated failover logic is hosted in a function app that you create using [Azure Functions](https://docs.microsoft.com/azure/azure-functions/).  Function apps offer several advantages. The failover code runs as a serverless function inside Azure Functions—deployment is convenient, cost-effective, and easy to maintain and customize. In addition, the function app is hosted within Azure Functions, so it has no dependencies on the virtual network. If changes to the virtual network impact the NVA firewalls, the function app continues to run
 independently. Testing is more accurate as well, because it takes place outside the virtual network using the same route as the inbound client requests.
 
-To check the availability of the NVA firewall, the function app code probes it in one of two ways:
+To check the availability of the NVA firewall, the function app code probes it by monitoring the device status of the Meraki networks/appliance using the Meraki API.
 
--   By monitoring the state of the Azure virtual machines hosting the NVA firewall.
-
--   By testing whether there is an open port through the firewall to any server. For this option, the NVA must expose a socket via PIP for the function app code to test.
-
-You choose the type of probe you want to use when you configure the function app.
 
 ## Prerequisites
 
@@ -30,7 +25,7 @@ This solution assumes that:
 
 -   You have a subscription on Azure
 
--   Your subscription has an existing deployment of two NVA firewalls (probably Meraki)
+-   Your subscription has an existing deployment of two Meraki VMx firewalls 
 
 -   You know how to route network traffic with a [route table](https://docs.microsoft.com/azure/virtual-network/tutorial-create-route-table-portal).
 
@@ -54,18 +49,20 @@ To set up the Azure resources:
 
 ### Set up Azure Functions
 
-The next step is to create and configure the function app using Azure Functions, and then deploy the code. You create the function app in the same Azure subscription that contains the NVA firewall virtual machine. You have the choice to configure the function app to monitor either the status of the virtual machines or the TCP port.
+The next step is to create and configure the function app using Azure Functions, and then deploy the code. You create the function app in the same Azure subscription that contains the NVA firewall virtual machine. 
 
 Before continuing, make sure to have the following values specific to this deployment:
 
 -   Subscription ID for the Azure subscription in which the NVA firewall virtual
     machines are deployed.
 
--   Name of the virtual machine hosting the first NVA firewall instance.
+-   Private IPs of the virtual machine hosting the first & second NVA firewall instance.
 
--   Name of the virtual machine hosting the second NVA firewall instance.
+-   Meraki Organisation ID, and the Network ID for both networks that the first & second NVA instances are in.
+    https://dashboard.meraki.com/api/v0/organizations (id field)
+    https://api.meraki.com/api/v0/organizations/{id}/networks  (id field prefixed with N_)
 
--   Name of the resource group(s) containing the NVA firewall virtual machines.
+-   Meraki API key (created under Organization / API & Webhooks in Meraki dashboard)
 
 -   Value you assigned earlier to the **nva\_ha\_udr** resource tag for each resource group containing route table resources.
 
@@ -81,34 +78,25 @@ To create, configure, and deploy the function app:
 
 4.  Click [Application settings](https://docs.microsoft.com/azure/azure-functions/functions-how-to-use-azure-function-app-settings#settings) and add the following environment variables and values:
 
-| Variable       | Value                                                                                   |
-|----------------|-----------------------------------------------------------------------------------------|
-| SUBSCRIPTIONID | Azure subscription ID                                                                   |
-| FW1NAME        | Name of the virtual machine hosting the first NVA firewall instance                     |
-| FW2NAME        | Name of the virtual machine hosting the second NVA firewall instance                    |
-| FW1RGNAME      | Name of the resource group containing the NVA firewall virtual machine 1                |
-| FW2RGNAME      | Name of the resource group containing the NVA firewall virtual machine 2                |
-| FWUDRTAG       | Resource tag value                                                                      |
-| FWTRIES        | *3* (enables three retries for checking firewall health before returning “Down” status) |
-| FWDELAY        | *2* (enables two seconds between retries)                                               |
-| FWMONITOR      | Either *VMStatus* or *TCPPort*                                                          |
+| Variable                 | Value                                                                                   |
+|--------------------------|-----------------------------------------------------------------------------------------|
+| SUBSCRIPTIONID           | Azure subscription ID                                                                   |
+| FWIP1                    | Private IP of the virtual machine hosting the first NVA firewall instance               |
+| FWIP2                    | Private IP of the virtual machine hosting the second NVA firewall instance              |
+| FWUDRTAG                 | Resource tag value                                                                      |
+| FWTRIES                  | *3* (enables three retries for checking firewall health before returning “Down” status) |
+| FWDELAY                  | *2* (enables two seconds between retries)                                               |
+| FWMONITOR                | Either *VMStatus* or *TCPPort*                                                          |
+| MERAKIORGANIZATIONID     | Meraki Organisation ID for API call                                                     |
+| MERAKINETWORKID1         | Meraki Network ID (N_xxxxxxx) for the first NVA firewall instance                       |
+| MERAKINETWORKID2         | Meraki Network ID (N_xxxxxxx) for the second NVA firewall instance                      |
+| MERAKI_DASHBOARD_API_KEY | Meraki API key for the Organisation                                                     |
 
-5.  If you set FWMONITOR to *TCPPort*, add the following application setting variables and values:
-
-| Variable | Value                                                                                      |
-|----------|--------------------------------------------------------------------------------------------|
-| FW1FQDN  | Publicly accessible FQDN or IP address for the first NVA firewall virtual machine instance |
-| FW1PORT  | TCP port on which the first NVA firewall virtual machine instance is listening             |
-| FW2FQDN  | Publicly accessible FQDN or IP address for second NVA firewall virtual machine instance    |
-| FW2PORT  | TCP port on which the second NVA firewall virtual machine instance is listening            |
-
-6.  It's easiest to deploy the code from inside Visual Studio Code, you need the Azure and Python plugins loaded [Instruction on how to use VSC with Python Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/create-first-function-vs-code-python)
+5.  It's easiest to deploy the code from inside Visual Studio Code, you need the Azure and Python plugins loaded [Instruction on how to use VSC with Python Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/create-first-function-vs-code-python)
 
 ### Test the function app
 
 After the Azure function app has been configured and deployed, use these steps to test automated failover between NVAs:
-
-1.  If the Azure function app is configured such that FWMONITOR = "VMStatus", do the following:
 
     1.  Confirm that requests are flowing through the primary NVA (FW1) to internal applications.
 
@@ -116,21 +104,8 @@ After the Azure function app has been configured and deployed, use these steps t
 
     3.  Monitor the Azure function app logs to ensure that a failover is performed.
 
-    4.  Confirm that you received an email alert about the failover process.
+    4.  Confirm that traffic is now flowing through the secondary NVA (FW2) to internal applications.
 
-    5.  Confirm that traffic is now flowing through the secondary NVA (FW2) to internal applications.
-
-2.  If the Azure function app is configured such that FWMONITOR = "TCPPort", do the following:
-
-    1.  Confirm that requests are flowing through the primary NVA (FW1) to internal applications.
-
-    2.  Apply a network security group (NSG) to the external NIC of the primary NVA (FW1) that blocks inbound network traffic on the TCP port being monitored.
-
-    3.  Monitor the Azure function app Logs to ensure that a failover is performed.
-
-    4.  Confirm that you received an email alert about the failover process.
-
-    5.  Confirm that traffic is now flowing through the secondary NVA (FW2) to internal applications.
 
 ## Next steps
 

@@ -4,6 +4,6 @@
 
 azure-functions
 azure-identity==1.14.1
-azure-mgmt-compute==30.3.0
 azure-mgmt-network==25.1.0
 azure-mgmt-resource==23.0.1
+meraki

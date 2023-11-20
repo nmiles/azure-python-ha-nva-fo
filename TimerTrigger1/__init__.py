@@ -1,45 +1,56 @@
-# Python Azure Function to support HA for NVAs (designed for Meraki VMx)
+# Python Azure Function to support HA for NVAs - Meraki VMx
 # https://learn.microsoft.com/en-us/python/api/
 #
 import logging
 import os
-import socket
 import time
+import meraki
 from datetime import datetime, timezone
-
 from azure.functions import TimerRequest
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.network import NetworkManagementClient
-from azure.mgmt.compute import ComputeManagementClient
 from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.network.models import Route, RouteNextHopType
 
-# Checks a specified VM status
-def test_vm_status(vm, fw_resource_group):
-    vm_status = compute_client.virtual_machines.get(fw_resource_group, vm, expand="instanceView")
-    statuses = vm_status.instance_view.statuses
-    for status in statuses:
-        if status.code == 'PowerState/running':
-            return False
+# Check the Meraki network ID device status
+def is_vpn_down(network_id):
+    dashboard = meraki.DashboardAPI(suppress_logging=True)
+    organization_id = os.environ['MERAKIORGANIZATIONID']
+    response = dashboard.appliance.getOrganizationApplianceVpnStatuses(
+        organization_id, networkIds=[network_id]
+    )
+    logging.info("Device status %s for network %s", response[0]['deviceStatus'], network_id)
+    if len(response) != 1:
+        raise Exception("getOrganizationApplianceVpnStatuses: Didn't get exactly 1 response")
+
+    if response[0]['deviceStatus'] != 'online':
+        logging.info("Device status %s for network %s", response[0]['deviceStatus'], network_id)
+        return True
+    
+    return False
+
+# Is the specified interface (ip) already set on the route tables?
+def is_interface_active(interface):
+    tag_value = os.environ['FWUDRTAG']
+    tagged_resources = resource_client.resources.list(filter=f"tagName eq 'nva_ha_udr' and tagValue eq '{tag_value}'")
+    logging.info("is_interface_active for: %s", interface)
+    for resource in tagged_resources:
+        resource_group_name = resource.id.split('/')[4]
+        # Get the route table for the resource
+        route_table = network_client.route_tables.get(resource_group_name=resource_group_name, route_table_name=resource.name)
+        for route in route_table.routes:
+            logging.info("Checking %s route %s", route_table.name, route)
+            logging.info("Next hop: [%s] Interface: [%s]", route.next_hop_ip_address, interface)
+            if route.next_hop_ip_address != interface:
+                return False
     return True
 
-# Checks for a response on TCP port
-def test_tcp_port(server, port):
-    try:
-        socket.create_connection((server, port), timeout=1)
-        return True
-    except (socket.timeout, ConnectionRefusedError):
-        return False
-
-# Failover from primary to secondary
-def start_failover():
-    # Get the tag value from the environment variable
+# Switch to specific interface (ip)
+def switch(interface):
     tag_value = os.environ['FWUDRTAG']
-
-    # List resources with the specified tag
-    resources = resource_client.resources.list(filter=f"tagName eq 'nva_ha_udr' and tagValue eq '{tag_value}'")
-
-    for resource in resources:
+    tagged_resources = resource_client.resources.list(filter=f"tagName eq 'nva_ha_udr' and tagValue eq '{tag_value}'")
+    logging.info("switch to: %s", interface)
+    for resource in tagged_resources:
         logging.info("Contents of resource: %s", resource)
 
         resource_group_name = resource.id.split('/')[4]
@@ -52,78 +63,15 @@ def start_failover():
         for route in route_table.routes:
             logging.info("Updating %s route %s", route_table.name, route)
 
-            for i in range(len(primary_ints)):
-                if route.next_hop_ip_address == secondary_ints[i]:
-                    logging.info("Secondary NVA is already ACTIVE")
-                elif route.next_hop_ip_address == primary_ints[i]:
-                    logging.info("Secondary NVA is NOT already ACTIVE")
-                    # Update the route to use the secondary NVA
-                    updated_route = Route(next_hop_type=RouteNextHopType.virtual_appliance, address_prefix=route.address_prefix, next_hop_ip_address=secondary_ints[i])
+            if route.next_hop_ip_address != interface:
+                logging.info("Switching interfaces to %s", interface)
+                # Update the route to use the new interface
+                updated_route = Route(next_hop_type=RouteNextHopType.virtual_appliance, address_prefix=route.address_prefix, next_hop_ip_address=interface)
 
-                    network_client.routes.begin_create_or_update(resource_group_name=resource_group_name,
-                                                            route_table_name=route_table.name,
-                                                            route_name=route.name,
-                                                            route_parameters=updated_route).wait()
-
-# Failback from secondary to primary
-def start_failback():
-    # Get the tag value from the environment variable
-    tag_value = os.environ['FWUDRTAG']
-
-    # List resources with the specified tag
-    resources = resource_client.resources.list(filter=f"tagName eq 'nva_ha_udr' and tagValue eq '{tag_value}'")
-
-    for resource in resources:
-        logging.info("Contents of resource: %s", resource)
-
-        resource_group_name = resource.id.split('/')[4]
-
-        logging.info("Resource group for %s is %s", resource.name, resource_group_name)
-
-        # Get the route table for the resource
-        route_table = network_client.route_tables.get(resource_group_name=resource_group_name, route_table_name=resource.name)
-
-        for route in route_table.routes:
-            logging.info("Updating %s route %s", route_table.name, route)
-
-            for i in range(len(primary_ints)):
-                if route.next_hop_ip_address == primary_ints[i]:
-                    logging.info("Primary NVA is already ACTIVE")
-                elif route.next_hop_ip_address == secondary_ints[i]:
-                    # Update the route to use the primary NVA
-                    logging.info("Primary NVA is NOT already ACTIVE")
-                    updated_route = Route(next_hop_type=RouteNextHopType.virtual_appliance, address_prefix=route.address_prefix, next_hop_ip_address=primary_ints[i])
-                    network_client.routes.begin_create_or_update(resource_group_name=resource_group_name,
-                                                            route_table_name=route_table.name,
-                                                            route_name=route.name,
-                                                            route_parameters=updated_route).wait()
-
-# Get interfaces for NVAs
-def get_fw_interfaces():
-    # get the nics in FW1s resource group
-    nics1 = list(network_client.network_interfaces.list(resource_group_name=os.environ['FW1RGNAME']))
-    # get the nics in FW2s resource group
-    nics2 = list(network_client.network_interfaces.list(resource_group_name=os.environ['FW2RGNAME']))
-    nics = nics1 + nics2
-    # get the FW1 vm
-    vm1 = compute_client.virtual_machines.get(os.environ['FW1RGNAME'], os.environ['FW1NAME'], expand="instanceView")
-    # get the FW2 vm
-    vm2 = compute_client.virtual_machines.get(os.environ['FW2RGNAME'], os.environ['FW2NAME'], expand="instanceView")
-
-    logging.info("vm1: %s", vm1)
-    logging.info("vm2: %s", vm2)
-
-    # get the primary and secondary private ip interfaces
-    for nic in nics:
-        logging.info("nic.virtual_machine.id: %s", nic.virtual_machine.id.lower())
-        logging.info("vm1.id: %s", vm1.id.lower())
-        logging.info("vm2.id: %s", vm2.id.lower())
-        prv = [ip_config.private_ip_address for ip_config in nic.ip_configurations]
-        logging.info("prv: %s", prv)
-        if nic.virtual_machine and (nic.virtual_machine.id.lower() == vm1.id.lower()):
-            primary_ints.extend(prv)
-        if nic.virtual_machine and (nic.virtual_machine.id.lower() == vm2.id.lower()):
-            secondary_ints.extend(prv)
+                network_client.routes.begin_create_or_update(resource_group_name=resource_group_name,
+                                                        route_table_name=route_table.name,
+                                                        route_name=route.name,
+                                                        route_parameters=updated_route).wait()
 
 # Entry point
 def main(mytimer: TimerRequest) -> None:
@@ -135,20 +83,17 @@ def main(mytimer: TimerRequest) -> None:
     logging.info('Python timer trigger function ran at %s', utc_timestamp)
 
     logging.info("SUBSCRIPTIONID: %s", os.environ['SUBSCRIPTIONID'])
-    logging.info("FW1RGNAME: %s", os.environ['FW1RGNAME'])
-    logging.info("FW1NAME: %s", os.environ['FW1NAME'])
-    logging.info("FW2RGNAME: %s", os.environ['FW2RGNAME'])
-    logging.info("FW2NAME: %s", os.environ['FW2NAME'])
+    logging.info("FWIP1: %s", os.environ['FWIP1'])
+    logging.info("FWIP2: %s", os.environ['FWIP2'])
     logging.info("FWTRIES: %s", os.environ['FWTRIES'])
     logging.info("FWDELAY: %s", os.environ['FWDELAY'])
     logging.info("FWUDRTAG: %s", os.environ['FWUDRTAG'])
-    logging.info("FWMONITOR: %s", os.environ['FWMONITOR'])
+    logging.info("MERAKIORGANIZATIONID: %s", os.environ['MERAKIORGANIZATIONID'])
+    logging.info("MERAKINETWORKID1: %s", os.environ['MERAKINETWORKID1'])
+    logging.info("MERAKINETWORKID2: %s", os.environ['MERAKINETWORKID2'])
 
     global credentials
     credentials = DefaultAzureCredential()
-
-    global compute_client
-    compute_client = ComputeManagementClient(credentials, os.environ['SUBSCRIPTIONID'])
 
     global network_client
     network_client = NetworkManagementClient(credentials, os.environ['SUBSCRIPTIONID'])
@@ -156,31 +101,31 @@ def main(mytimer: TimerRequest) -> None:
     global resource_client
     resource_client = ResourceManagementClient(credentials, os.environ['SUBSCRIPTIONID'])
 
-    global primary_ints
-    primary_ints = []
-    global secondary_ints
-    secondary_ints = []
+    primary_interface = os.environ['FWIP1']
+    secondary_interface = os.environ['FWIP2']
 
     ctr_fw1 = 0
     ctr_fw2 = 0
     fw1_down = True
     fw2_down = True
+    fw1_active = False
+    fw2_active = False
 
-    get_fw_interfaces()
+    logging.info("primary_interface: %s", primary_interface)
+    logging.info("secondary_interface: %s", secondary_interface)
 
-    logging.info("primary_ints: %s", primary_ints)
-    logging.info("secondary_ints: %s", secondary_ints)
+    fw1_active = is_interface_active(primary_interface)
+    if (not fw1_active):
+        fw2_active = is_interface_active(secondary_interface)
+
+    logging.info("is FW1 already active: %s", fw1_active)
+    logging.info("is FW2 already active: %s", fw2_active)
 
     for ctr in range(int(os.environ['FWTRIES'])):
-        if os.environ['FWMONITOR'] == 'VMStatus':
-            fw1_down = test_vm_status(os.environ['FW1NAME'], os.environ['FW1RGNAME'])
-            fw2_down = test_vm_status(os.environ['FW2NAME'], os.environ['FW2RGNAME'])
+        fw1_down = is_vpn_down(os.environ['MERAKINETWORKID1'])
+        fw2_down = is_vpn_down(os.environ['MERAKINETWORKID2'])
 
-        if os.environ['FWMONITOR'] == 'TCPPort':
-            fw1_down = not test_tcp_port(os.environ['FW1FQDN'], int(os.environ['FW1PORT']))
-            fw2_down = not test_tcp_port(os.environ['FW2FQDN'], int(os.environ['FW2PORT']))
-
-        logging.info(f"Pass {ctr + 1} of {int(os.environ['FWTRIES'])} - FW1Down is {fw1_down}, FW2Down is {fw2_down}")
+        logging.info(f"Pass {ctr + 1} of {int(os.environ['FWTRIES'])} - FW1 is down? {fw1_down}, FW2 is down? {fw2_down}")
 
         if fw1_down:
             ctr_fw1 += 1
@@ -200,16 +145,18 @@ def main(mytimer: TimerRequest) -> None:
     if ctr_fw2 == int(os.environ['FWTRIES']):
         fw2_down = True
 
-    if fw1_down and not fw2_down:
-        logging.info('FW1 Down - Failing over to FW2')
-        start_failover()
-    elif not fw1_down and fw2_down:
-        logging.info('FW2 Down - Failing back to FW1')
-        start_failback()
+    if fw1_down and not fw2_down and not fw2_active:
+        logging.warning('FW1 down and FW2 not active, switching to FW2')
+        switch(secondary_interface)
+    elif not fw1_down and not fw1_active:
+        logging.warning('FW1 available but not active, switching to FW1')
+        switch(primary_interface)
+    elif fw2_down and not fw1_down and fw1_active:
+        logging.warning('FW2 down but FW1 available and is active')
     elif fw1_down and fw2_down:
-        logging.info('Both FW1 and FW2 Down - Manual recovery action required')
+        logging.error('Both FW1 and FW2 down - manual recovery action required')
     else:
-        logging.info('Both FW1 and FW2 Up - No action is required')
+        logging.info('Both FW1 and FW2 up and FW1 primary, nothing to do')
 
 if __name__ == "__main__":
     main()
