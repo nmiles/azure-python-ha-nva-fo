@@ -59,8 +59,9 @@ Before continuing, make sure to have the following values specific to this deplo
 -   Private IPs of the virtual machine hosting the first & second NVA firewall instance.
 
 -   Meraki Organisation ID, and the Network ID for both networks that the first & second NVA instances are in.
-    https://dashboard.meraki.com/api/v0/organizations (id field)
-    https://api.meraki.com/api/v0/organizations/{id}/networks  (id field prefixed with N_)
+    Can be found by logging into the Dashboard then using these URLs:
+    https://api.meraki.com/api/v0/organizations (id field is Organisation ID)
+    https://api.meraki.com/api/v0/organizations/{id}/networks (id field prefixed with N_)
 
 -   Meraki API key (created under Organization / API & Webhooks in Meraki dashboard)
 
@@ -104,6 +105,8 @@ After the Azure function app has been configured and deployed, use these steps t
     3.  Monitor the Azure function app logs to ensure that a failover is performed.
 
     4.  Confirm that traffic is now flowing through the secondary NVA (FW2) to internal applications.
+
+    5.  Restart the primary and check the failback is performed.
 
 
 ## Next steps
