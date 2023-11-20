@@ -86,7 +86,6 @@ To create, configure, and deploy the function app:
 | FWUDRTAG                 | Resource tag value                                                                      |
 | FWTRIES                  | *3* (enables three retries for checking firewall health before returning “Down” status) |
 | FWDELAY                  | *2* (enables two seconds between retries)                                               |
-| FWMONITOR                | Either *VMStatus* or *TCPPort*                                                          |
 | MERAKIORGANIZATIONID     | Meraki Organisation ID for API call                                                     |
 | MERAKINETWORKID1         | Meraki Network ID (N_xxxxxxx) for the first NVA firewall instance                       |
 | MERAKINETWORKID2         | Meraki Network ID (N_xxxxxxx) for the second NVA firewall instance                      |
