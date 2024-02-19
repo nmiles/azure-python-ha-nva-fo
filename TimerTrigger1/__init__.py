@@ -30,7 +30,7 @@ def is_vpn_down(network_id):
     return False
 
 # Is the specified interface (ip) already set on the route tables?
-def is_interface_active(interface):
+def is_interface_active(interface, interfaces):
     tag_value = os.environ['FWUDRTAG']
     tagged_resources = resource_client.resources.list(filter=f"tagName eq 'nva_ha_udr' and tagValue eq '{tag_value}'")
     logging.info("is_interface_active for: %s", interface)
@@ -39,14 +39,17 @@ def is_interface_active(interface):
         # Get the route table for the resource
         route_table = network_client.route_tables.get(resource_group_name=resource_group_name, route_table_name=resource.name)
         for route in route_table.routes:
-            logging.info("Checking %s route %s", route_table.name, route)
+            if route.next_hop_ip_address not in interfaces:
+                logging.info("Ignoring %s route %s", route_table.name, route.name)
+                continue
+            logging.info("Checking %s route %s", route_table.name, route.name)
             logging.info("Next hop: [%s] Interface: [%s]", route.next_hop_ip_address, interface)
             if route.next_hop_ip_address != interface:
                 return False
     return True
 
 # Switch to specific interface (ip)
-def switch(interface):
+def switch(interface, interfaces):
     tag_value = os.environ['FWUDRTAG']
     tagged_resources = resource_client.resources.list(filter=f"tagName eq 'nva_ha_udr' and tagValue eq '{tag_value}'")
     logging.info("switch to: %s", interface)
@@ -61,7 +64,10 @@ def switch(interface):
         route_table = network_client.route_tables.get(resource_group_name=resource_group_name, route_table_name=resource.name)
 
         for route in route_table.routes:
-            logging.info("Updating %s route %s", route_table.name, route)
+            if route.next_hop_ip_address not in interfaces:
+                logging.info("Ignoring %s route %s", route_table.name, route.name)
+                continue
+            logging.info("Updating %s route %s", route_table.name, route.name)
 
             if route.next_hop_ip_address != interface:
                 logging.info("Switching interfaces to %s", interface)
@@ -103,6 +109,7 @@ def main(mytimer: TimerRequest) -> None:
 
     primary_interface = os.environ['FWIP1']
     secondary_interface = os.environ['FWIP2']
+    interfaces = [primary_interface, secondary_interface]
 
     ctr_fw1 = 0
     ctr_fw2 = 0
@@ -114,9 +121,9 @@ def main(mytimer: TimerRequest) -> None:
     logging.info("primary_interface: %s", primary_interface)
     logging.info("secondary_interface: %s", secondary_interface)
 
-    fw1_active = is_interface_active(primary_interface)
+    fw1_active = is_interface_active(primary_interface, interfaces)
     if (not fw1_active):
-        fw2_active = is_interface_active(secondary_interface)
+        fw2_active = is_interface_active(secondary_interface, interfaces)
 
     logging.info("is FW1 already active: %s", fw1_active)
     logging.info("is FW2 already active: %s", fw2_active)
@@ -147,10 +154,10 @@ def main(mytimer: TimerRequest) -> None:
 
     if fw1_down and not fw2_down and not fw2_active:
         logging.warning('FW1 down and FW2 not active, switching to FW2')
-        switch(secondary_interface)
+        switch(secondary_interface, interfaces)
     elif not fw1_down and not fw1_active:
         logging.warning('FW1 available but not active, switching to FW1')
-        switch(primary_interface)
+        switch(primary_interface, interfaces)
     elif fw2_down and not fw1_down and fw1_active:
         logging.warning('FW2 down but FW1 available and is active')
     elif fw1_down and fw2_down:
